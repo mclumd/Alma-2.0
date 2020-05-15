@@ -120,12 +120,17 @@ static clause* fif_conclude(kb *collection, fif_task *task, binding_list *bindin
   conclusion->parents = malloc(sizeof(*conclusion->parents));
   conclusion->parents[0].count = task->num_unified + 1;
   conclusion->parents[0].clauses = malloc(sizeof(*conclusion->parents[0].clauses) * conclusion->parents[0].count);
+  conclusion->tagged = 0;
   for (int i = 0; i < conclusion->parents[0].count-1; i++) {
     long index = task->unified_clauses[i];
     index_mapping *result = tommy_hashlin_search(&collection->index_map, im_compare, &index, tommy_hash_u64(0, &index, sizeof(index)));
     conclusion->parents[0].clauses[i] = result->value;
+    if (result->value->tagged)
+      conclusion->tagged = 1;
   }
   conclusion->parents[0].clauses[conclusion->parents[0].count-1] = task->fif;
+  if (task->fif->tagged)
+    conclusion->tagged = 1;
   conclusion->children_count = 0;
   conclusion->children = NULL;
   conclusion->tag = NONE;

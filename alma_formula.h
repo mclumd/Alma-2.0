@@ -14,6 +14,7 @@ typedef struct alma_node {
     struct alma_fol *fol;
     struct alma_function *predicate;
   };
+  int tagged; // Holds binary boolean for if tagged or not
 } alma_node;
 
 typedef enum alma_operator {NOT, OR, AND, IF} alma_operator;

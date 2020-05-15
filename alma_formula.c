@@ -71,21 +71,22 @@ static void alma_function_init(alma_function *func, mpc_ast_t *ast) {
   }
 }
 
-static void alma_tree_init(alma_node *alma_tree, mpc_ast_t *ast);
+static void alma_tree_init(alma_node *alma_tree, mpc_ast_t *ast, int tagged);
 
 // Recursively constructs ALMA FOL function representation of AST argument into ALMA quote pointer
 static void alma_quote_init(alma_quote *quote, mpc_ast_t *ast) {
   quote->type = SENTENCE;
   quote->sentence = malloc(sizeof(*quote->sentence));
-  alma_tree_init(quote->sentence, ast->children[2]);
+  alma_tree_init(quote->sentence, ast->children[2], 0);
 }
 
 // Constructs ALMA FOL representation of a predicate:
 // an ALMA node whose union is used to hold an ALMA function that describes the predicate
-static void alma_predicate_init(alma_node *node, mpc_ast_t *ast) {
+static void alma_predicate_init(alma_node *node, mpc_ast_t *ast, int tagged) {
   node->type = PREDICATE;
   node->predicate = malloc(sizeof(*node->predicate));
   alma_function_init(node->predicate, ast);
+  node->tagged = tagged;
 }
 
 
@@ -102,34 +103,35 @@ static alma_operator op_from_contents(char *contents) {
 }
 
 // Given an MPC AST pointer, constructs an ALMA tree to a FOL representation of the AST
-static void alma_tree_init(alma_node *alma_tree, mpc_ast_t *ast) {
+static void alma_tree_init(alma_node *alma_tree, mpc_ast_t *ast, int tagged) {
   // Match tag containing literal as function
   if (strstr(ast->tag, "literal") != NULL) {
-    alma_predicate_init(alma_tree, ast);
+    alma_predicate_init(alma_tree, ast, tagged);
   }
   // Match nested pieces of formula/fformula/bformula/conjform/fformconc rules, recursively operate on
   // Dependent on only these productions containing string formula within an almaformula tree
   else if (strstr(ast->tag, "formula") != NULL || strstr(ast->tag, "conjform") != NULL || strstr(ast->tag, "fformconc") != NULL) {
     // Case for formula producing just a literal
     if (strstr(ast->children[0]->tag, "literal") != NULL) {
-      alma_predicate_init(alma_tree, ast->children[0]);
+      alma_predicate_init(alma_tree, ast->children[0], tagged);
     }
     // Otherwise, formula derives to FOL contents
     else {
       alma_tree->type = FOL;
       alma_tree->fol = malloc(sizeof(*alma_tree->fol));
+      alma_tree->tagged = tagged;
 
       alma_tree->fol->op = op_from_contents(ast->children[0]->contents);
       alma_tree->fol->tag = NONE;
 
       // Set arg1 based on children
       alma_tree->fol->arg1 = malloc(sizeof(*alma_tree->fol->arg1));
-      alma_tree_init(alma_tree->fol->arg1, ast->children[1]);
+      alma_tree_init(alma_tree->fol->arg1, ast->children[1], tagged);
 
       if (strstr(ast->tag, "fformula") != NULL) {
         // Set arg2 for fformula conclusion
         alma_tree->fol->arg2 = malloc(sizeof(*alma_tree->fol->arg2));
-        alma_tree_init(alma_tree->fol->arg2, ast->children[4]);
+        alma_tree_init(alma_tree->fol->arg2, ast->children[4], tagged);
         alma_tree->fol->tag = FIF;
       }
       else {
@@ -139,7 +141,7 @@ static void alma_tree_init(alma_node *alma_tree, mpc_ast_t *ast) {
         }
         else {
           alma_tree->fol->arg2 = malloc(sizeof(*alma_tree->fol->arg2));
-          alma_tree_init(alma_tree->fol->arg2, ast->children[3]);
+          alma_tree_init(alma_tree->fol->arg2, ast->children[3], tagged);
         }
         if (strstr(ast->tag, "bformula") != NULL)
           alma_tree->fol->tag = BIF;
@@ -165,7 +167,11 @@ static void generate_alma_trees(mpc_ast_t *ast, alma_node **alma_trees, int *siz
   int index = 0;
   for (int i = 0; i < ast->children_num; i++) {
     if (strstr(ast->children[i]->tag, "almaformula") != NULL) {
-      alma_tree_init(*alma_trees + index, ast->children[i]->children[0]);
+      // Tag case
+      if (strstr(ast->children[i]->children[0]->contents, "t!") != NULL)
+        alma_tree_init(*alma_trees + index, ast->children[i]->children[1], 1);
+      else
+        alma_tree_init(*alma_trees + index, ast->children[i]->children[0], 0);
       index++;
     }
   }
@@ -182,10 +188,11 @@ int formulas_from_source(char *source, int file_src, int *formula_count, alma_no
     // Flatten CNF list into KB of clauses
     for (int i = 0; i < *formula_count; i++)
       make_cnf(*formulas+i);
-    // printf("CNF equivalents:\n");
-    // for (int i = 0; i < *formula_count; i++)
-    //   alma_fol_print(*formulas+i);
-    // printf("\n");
+     // tee("CNF equivalents:\n");
+     // for (int i = 0; i < *formula_count; i++) {
+     //   alma_fol_print(*formulas+i);
+     //   tee("\n");
+     // }
 
     return 1;
   }
@@ -341,6 +348,7 @@ void copy_alma_tree(alma_node *original, alma_node *copy) {
     else
       copy->predicate = NULL;
   }
+  copy->tagged = original->tagged;
 }
 
 // Recursively converts all quote alma_nodes to clauses within alma_node
@@ -395,13 +403,14 @@ void quote_convert_func(alma_function *func) {
 }
 
 // Constructs ALMA FOL operator (i.e. AND/OR/NOT/IF) from arguments
-static void alma_fol_init(alma_node *node, alma_operator op, alma_node *arg1, alma_node *arg2, if_tag tag) {
+static void alma_fol_init(alma_node *node, alma_operator op, alma_node *arg1, alma_node *arg2, if_tag tag, int tagged) {
   node->type = FOL;
   node->fol = malloc(sizeof(*node->fol));
   node->fol->op = op;
   node->fol->arg1 = arg1;
   node->fol->arg2 = arg2;
   node->fol->tag = tag;
+  node->tagged = tagged;
 }
 
 // Recursively replaces all occurrences of IF(A,B) in node to OR(NOT(A),B)
@@ -409,7 +418,7 @@ static void eliminate_conditionals(alma_node *node) {
   if (node != NULL && node->type == FOL) {
     if (node->fol->op == IF) {
       alma_node *new_negation = malloc(sizeof(*new_negation));
-      alma_fol_init(new_negation, NOT, node->fol->arg1, NULL, NONE);
+      alma_fol_init(new_negation, NOT, node->fol->arg1, NULL, NONE, node->tagged);
 
       node->fol->op = OR;
       node->fol->arg1 = new_negation;
@@ -436,9 +445,9 @@ static void negation_inwards(alma_node *node) {
             alma_operator op = notarg->fol->op;
             // New nodes for result of De Morgan's
             alma_node *negated_arg1 = malloc(sizeof(*negated_arg1));
-            alma_fol_init(negated_arg1, NOT, notarg->fol->arg1, NULL, NONE);
+            alma_fol_init(negated_arg1, NOT, notarg->fol->arg1, NULL, NONE, notarg->tagged);
             alma_node *negated_arg2 = malloc(sizeof(*negated_arg2));
-            alma_fol_init(negated_arg2, NOT, notarg->fol->arg2, NULL, NONE);
+            alma_fol_init(negated_arg2, NOT, notarg->fol->arg2, NULL, NONE, notarg->tagged);
             // Free unused AND
             notarg->fol->arg1 = NULL;
             notarg->fol->arg2 = NULL;
@@ -487,13 +496,13 @@ static void dist_or_over_and(alma_node *node) {
 
         // Create (P \/ R)
         alma_node *arg1_or = malloc(sizeof(*arg1_or));
-        alma_fol_init(arg1_or, OR, node->fol->arg1->fol->arg1, node->fol->arg2, NONE);
+        alma_fol_init(arg1_or, OR, node->fol->arg1->fol->arg1, node->fol->arg2, NONE, node->tagged);
 
         // Create (Q \/ R)
         alma_node *arg2_copy = malloc(sizeof(*arg2_copy));
         copy_alma_tree(node->fol->arg2, arg2_copy);
         alma_node *arg2_or = malloc(sizeof(*arg2_or));
-        alma_fol_init(arg2_or, OR, node->fol->arg1->fol->arg2, arg2_copy, NONE);
+        alma_fol_init(arg2_or, OR, node->fol->arg1->fol->arg2, arg2_copy, NONE, node->tagged);
 
         // Free old conjunction
         node->fol->arg1->fol->arg1 = NULL;
@@ -513,13 +522,13 @@ static void dist_or_over_and(alma_node *node) {
 
         // Create (P \/ Q)
         alma_node *arg1_or = malloc(sizeof(*arg1_or));
-        alma_fol_init(arg1_or, OR, node->fol->arg1, node->fol->arg2->fol->arg1, NONE);
+        alma_fol_init(arg1_or, OR, node->fol->arg1, node->fol->arg2->fol->arg1, NONE, node->tagged);
 
         // Create (P \/ R)
         alma_node *arg1_copy = malloc(sizeof(*arg1_copy));
         copy_alma_tree(node->fol->arg1, arg1_copy);
         alma_node *arg2_or = malloc(sizeof(*arg2_or));
-        alma_fol_init(arg2_or, OR, arg1_copy, node->fol->arg2->fol->arg2, NONE);
+        alma_fol_init(arg2_or, OR, arg1_copy, node->fol->arg2->fol->arg2, NONE, node->tagged);
 
         // Free old conjunction
         node->fol->arg2->fol->arg1 = NULL;

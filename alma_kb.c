@@ -164,6 +164,7 @@ static int function_compare(const void *p1, const void *p2) {
 
 void make_clause(alma_node *node, clause *c) {
   make_clause_rec(node, c);
+  c->tagged = node->tagged;
 
   // If clause is fif, initialize additional info
   if (c->tag == FIF) {
@@ -1069,6 +1070,7 @@ void resolve(res_task *t, binding_list *mgu, clause *result) {
     result->neg_lits = NULL;
 
   result->tag = NONE;
+  result->tagged = t->x->tagged || t->y->tagged;
   result->fif = NULL;
 }
 

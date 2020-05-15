@@ -37,7 +37,7 @@ static void alma_quote_print(alma_quote *quote) {
   tee("\"");
 }
 
-void alma_fol_print(alma_node *node) {
+static void alma_fol_print_rec(alma_node *node) {
   if (node->type == FOL) {
     char *op;
     switch (node->fol->op) {
@@ -60,16 +60,22 @@ void alma_fol_print(alma_node *node) {
     tee("(");
     if (node->fol->op == NOT)
       tee("%s", op);
-    alma_fol_print(node->fol->arg1);
+    alma_fol_print_rec(node->fol->arg1);
 
     if (node->fol->arg2 != NULL) {
       tee(" %s ", op);
-      alma_fol_print(node->fol->arg2);
+      alma_fol_print_rec(node->fol->arg2);
     }
     tee(")");
   }
   else
     alma_function_print(node->predicate);
+}
+
+void alma_fol_print(alma_node *node) {
+  alma_fol_print_rec(node);
+  if (node->tagged)
+    tee(" -t");
 }
 
 static void lits_print(alma_function **lits, int count, char *delimiter, int negate) {
@@ -153,6 +159,8 @@ void clause_print(clause *c) {
     tee(")");
   }
   //tee(" (L%ld)", c->learned);
+  if (c->tagged)
+    tee(" -t");
 }
 
 void print_bindings(binding_list *theta) {
