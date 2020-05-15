@@ -268,6 +268,7 @@ void copy_clause_structure(clause *original, clause *copy) {
   }
   else
     copy->fif = NULL;
+  copy->tagged = original->tagged;
 }
 
 // Flattens trees into set of clauses (tommy_array must be initialized prior)
