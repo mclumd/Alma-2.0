@@ -1114,13 +1114,13 @@ void add_child(clause *parent, clause *child) {
 void transfer_parent(kb *collection, clause *target, clause *source, int add_children) {
   // Check if the duplicate clause is a repeat from the same parents
   int repeat_parents = 0;
-  for (int j = 0; j < target->parent_set_count; j++) {
-    int k = 0;
-    for (; k < source->parents[0].count && k < target->parents[j].count; k++) {
-      if (source->parents[0].clauses[k] != target->parents[j].clauses[k])
+  for (int i = 0; i < target->parent_set_count; i++) {
+    int j = 0;
+    for (; j < source->parents[0].count && j < target->parents[i].count; j++) {
+      if (source->parents[0].clauses[j] != target->parents[i].clauses[j])
         break;
     }
-    if (k == target->parents[j].count && k == source->parents[0].count) {
+    if (j == target->parents[i].count && j == source->parents[0].count) {
       repeat_parents = 1;
       break;
     }
@@ -1136,23 +1136,28 @@ void transfer_parent(kb *collection, clause *target, clause *source, int add_chi
     target->parents[last].clauses = malloc(sizeof(*target->parents[last].clauses) * target->parents[last].count);
     memcpy(target->parents[last].clauses, source->parents[0].clauses, sizeof(*target->parents[last].clauses) * target->parents[last].count);
     target->parent_set_count++;
+    for (int i = 0; i < target->parents[last].count; i++)
+      if (target->parents[last].clauses[i]->tagged) {
+        target->tagged = 1;
+        break;
+      }
 
     if (add_children) {
       // Parents of source also gain new child in target
       // Also check if parents of source are distrusted
       int distrust = 0;
-      for (int j = 0; j < source->parents[0].count; j++) {
+      for (int i = 0; i < source->parents[0].count; i++) {
         int insert = 1;
-        if (is_distrusted(collection, source->parents[0].clauses[j]->index))
+        if (is_distrusted(collection, source->parents[0].clauses[i]->index))
           distrust = 1;
-        for (int k = 0; k < source->parents[0].clauses[j]->children_count; k++) {
-          if (source->parents[0].clauses[j]->children[k] == target) {
+        for (int j = 0; j < source->parents[0].clauses[i]->children_count; j++) {
+          if (source->parents[0].clauses[i]->children[j] == target) {
             insert = 0;
             break;
           }
         }
         if (insert)
-          add_child(source->parents[0].clauses[j], target);
+          add_child(source->parents[0].clauses[i], target);
       }
       if (distrust && !is_distrusted(collection, target->index))
         distrust_recursive(collection, target, NULL);
@@ -1197,6 +1202,8 @@ void distrust_recursive(kb *collection, clause *c, clause *parent) {
     distrusted->parents[0].count = 1;
     distrusted->parents[0].clauses = malloc(sizeof(*distrusted->parents[0].clauses));
     distrusted->parents[0].clauses[0] = parent;
+    if (parent->tagged)
+      distrusted->tagged = 1;
   }
 
   // Recursively distrust children that aren't distrusted already
@@ -1509,6 +1516,8 @@ static void handle_distrusted_parent(kb *collection, clause *dist) {
                     dist->parents[0].count = 1;
                     dist->parents[0].clauses = malloc(sizeof(*dist->parents[0].clauses));
                     dist->parents[0].clauses[0] = parent_dist->parents[0].clauses[0];
+                    if (dist->parents[0].clauses[0]->tagged)
+                      dist->tagged = 1;
                     free(index_str);
                     return;
                   }
